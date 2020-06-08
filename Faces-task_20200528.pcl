@@ -1,0 +1,359 @@
+########################################################
+# BI Studie, Multiple Picture Block Design, Christian Paret, Zentralinstitut f. Seelische Gesundheit, 2018
+########################################################
+# Requires definition of button-labels "female" and "male" on Response-Tab (see Settings)
+########################################################
+
+########################################################
+############### Information on parameters ##############
+########################################################
+# Subjects view pictures and respond to each picture by button press
+# 2 conditions
+# 24 Trials
+# Trial: 6 faces are presented 3 sec each (18 sec duration)
+# Intertrial interval (ITI): fixation cross
+# Further ITI information: 
+# # The ITI is set to have a mean duration of 10 sec
+# # After trial, the computer waits until the 6th MR pulse after trial offset. 
+# # By adding a jitter, trial onsets will start at different time points into the next TR to control for optimal BOLD sampling.
+########################################################
+
+preset string ID = "Subject ID";
+preset string session = "session";
+
+logfile.set_filename( "sub-" + ID + "_ses-" + session + "_task-faces.log" );
+
+#################### Array of required responses #########################
+# Following array refers to picture content: "Is the person shown female or male?" 
+# Order of required "female"/"male" responses needs to correspond with picture 
+# order of bitmaps(see sce; i.e., if there's a e.g. a female face on pic1, 
+# then the first cell in the text-array needs to read "female")
+##########################################################################
+
+array <string> face_string_array [72] = {
+	"female",
+	"female",
+	"female",
+	"female",
+	"female",
+	"female",
+	"female",
+	"female",
+	"female",
+	"female",
+	"female",
+	"female",
+	"female",
+	"female",
+	"female",
+	"female",
+	"female",
+	"female",
+	"female",
+	"female",
+	"female",
+	"female",
+	"female",
+	"female",
+	"female",
+	"female",
+	"female",
+	"female",
+	"female",
+	"female",
+	"female",
+	"female",
+	"female",
+	"female",
+	"female",
+	"female",
+	"male",
+	"male",
+	"male",
+	"male",
+	"male",
+	"male",
+	"male",
+	"male",
+	"male",
+	"male",
+	"male",
+	"male",
+	"male",
+	"male",
+	"male",
+	"male",
+	"male",
+	"male",
+	"male",
+	"male",
+	"male",
+	"male",
+	"male",
+	"male",
+	"male",
+	"male",
+	"male",
+	"male",
+	"male",
+	"male",
+	"male",
+	"male",
+	"male",
+	"male",
+	"male",
+	"male"
+};
+
+array <int> scr_col_array [72];
+scr_col_array.fill(1,36,1,0); # green square
+scr_col_array.fill(37,72,2,0); # blue square
+
+array <string> col [2] = {"green","blue"}; # button 1 = green, button 2 = blue
+
+########################################################
+#                    Variables                         #
+######################################################## 
+double t0_time;
+stimulus_data this_trial;
+string condition;
+string response_type;
+
+array <bitmap> negative_pic_array [72];
+array <string> negative_string_array [72];
+array <bitmap> scrambled_pic_array [72];
+negative_pic_array = face_array;
+negative_string_array = face_string_array;
+scrambled_pic_array = scrambled_array;                 
+
+# Produce stimulus sequence for trial order (semi-randomized)
+array <int> dummy1 [2] = {1,2}; # 1=negative, 2=scrambled
+array <int> stimseq_array [0]; # build empty array to be filled with stimulus sequence
+loop int i = 1 until i > 12 begin # repeat 12 times to receive 24 events
+	dummy1.shuffle(); # shuffle dummy1-array for randomization of sequence
+	stimseq_array.append(dummy1); # put it at the end of the stimulus sequence; the stimseq_array will grow with each loop
+	i=i+1;
+end;	
+
+# Randomize picture order
+array <int> pic_index_array [72];
+pic_index_array.fill(1,72,1,1); # fill array with numbers (1,2,...,72)
+pic_index_array.shuffle(); # randomize picture order; the index-array is used below to point to pictures in negative_array (see sce)
+int neg_pic_index = 1;
+array <int> scr_index_array [72];
+scr_index_array.fill(1,72,1,1); # fill array with numbers (1,2,...,72)
+scr_index_array.shuffle(); # randomize picture order; the index-array is used below to point to pictures in scramble_array (see sce)
+int scr_pic_index = 1;
+
+# Jitter is used for optimal BOLD sampling; new trial will start after iti+0*TR, iti+0.25*TR, iti+0.5*TR, or iti+0.75*TR
+int iti = 6; # ~ mean iti in repetition times/TRs
+int tr = 2000;
+array <double> jitter_neg_array [4] = {0,0.25,0.5,0.75}; # trial-onset will be delayed by XX*tr
+array <double> jitter_scr_array [4] = {0,0.25,0.5,0.75};
+int jitter_neg_index = 5;
+int jitter_scr_index = 5;
+
+int dummy_pulses = 5; # t=0; this pulse kicks off the experiment
+int max_trials = 24;
+array <int> all_buttons [2] = {1,2};
+
+# Responses-array is filled with button press responses (hit/incorrect/miss) and printed to text-file after experiment
+array <string> responses [max_trials] [16]; 
+
+########################################################
+#                Output Text files                     #
+######################################################## 
+output_file outfile_response = new output_file;
+outfile_response.open("sub-" + ID + "_ses-" + session + "_rating-faces.txt",0,true);
+outfile_response.print("condition\tpic1\tpic2\tpic3\tpic4\tpic5\tpic6\thits\tincorrects\tmisses\tresponse_time1\tresponse_time2\tresponse_time3\tresponse_time4\tresponse_time5\tresponse_time6\n");
+
+# make BIDS compatible events-file
+output_file outfile_events = new output_file;
+outfile_events.open("sub-" + ID + "_ses-" + session + "_task-faces_events.tsv",0,true);
+outfile_events.print("onset\tduration\ttrial_type\tresponse\tresponse_type\tresponse_time");
+
+########################################################
+#                    Stimulation                       #
+########################################################
+
+prepare.present(); # Gleich geht's los
+int temp_pulse = pulse_manager.main_pulse_count(); # get current pulse; is currently temp_pulse=0
+
+term.print("Waiting for MRI pulse ...\n");
+loop until (pulse_manager.main_pulse_count() > 0) begin # sanity check
+	if pulse_manager.main_pulse_count() > 0 then
+		term.print("RECEIVED PULSE: it is save to continue."); # will not return this message in emulation mode
+	end;
+end;
+
+term.print("\nContinue only if 'RECEIVED PULSE' message is displayed above!\nOtherwise, MRI-pulses will not be recorded.\nSwitch off emulation mode and restart to solve the problem.");
+
+loop int i = 1 until (pulse_manager.main_pulse_count() == temp_pulse + dummy_pulses) begin # wait for dummy-pulses
+end;  
+t0_time = double(pulse_manager.main_pulse_time(pulse_manager.main_pulse_count()))/1000;
+
+fixcross_trial.present();
+
+loop int i = 1 until i > max_trials begin
+	temp_pulse = pulse_manager.main_pulse_count();
+	mpb_trial.set_mri_pulse(temp_pulse+iti);
+	
+	if stimseq_array[i] == 1 then # Current condition: negative
+		condition = "face";
+	
+		if jitter_neg_index > 4 then # if index exceeds length of jitter array, shuffle and start again with first array entry
+			jitter_neg_array.shuffle();
+			jitter_neg_index = 1;			
+		end;
+		
+		responses[i][1] = condition;
+	
+		# Set parameters for next trial
+		mpb_event1.set_deltat(int(jitter_neg_array[jitter_neg_index]*tr)); # add jitter to iti	
+		jitter_neg_index = jitter_neg_index + 1;
+		
+		mpb_pic1.set_part(1,negative_pic_array[pic_index_array[neg_pic_index]]); # set picture for presentation
+		mpb_event1.set_event_code("onset_face_nr" + string(pic_index_array[neg_pic_index]) + "_" + negative_string_array[pic_index_array[neg_pic_index]]); # writes condition, pic nr and content (person yes/no) to logfile
+		responses[i][2] = string(pic_index_array[neg_pic_index]);
+		mpb_event1.set_target_button(negative_string_array[pic_index_array[neg_pic_index]]); # set target button (female=1/male=2)
+		neg_pic_index = neg_pic_index + 1;
+		
+		mpb_pic2.set_part(1,negative_pic_array[pic_index_array[neg_pic_index]]); # do the same for the second and third picture of the block
+		mpb_event2.set_event_code("face_nr" + string(pic_index_array[neg_pic_index]) + "_" + negative_string_array[pic_index_array[neg_pic_index]]);
+		responses[i][3] = string(pic_index_array[neg_pic_index]);
+		mpb_event2.set_target_button(negative_string_array[pic_index_array[neg_pic_index]]);
+		neg_pic_index = neg_pic_index + 1;
+		
+		mpb_pic3.set_part(1,negative_pic_array[pic_index_array[neg_pic_index]]);
+		mpb_event3.set_event_code("face_nr" + string(pic_index_array[neg_pic_index]) + "_" + negative_string_array[pic_index_array[neg_pic_index]]);
+		responses[i][4] = string(pic_index_array[neg_pic_index]);
+		mpb_event3.set_target_button(negative_string_array[pic_index_array[neg_pic_index]]);
+		neg_pic_index = neg_pic_index + 1;
+		
+		mpb_pic4.set_part(1,negative_pic_array[pic_index_array[neg_pic_index]]);
+		mpb_event4.set_event_code("face_nr" + string(pic_index_array[neg_pic_index]) + "_" + negative_string_array[pic_index_array[neg_pic_index]]);
+		responses[i][5] = string(pic_index_array[neg_pic_index]);
+		mpb_event4.set_target_button(negative_string_array[pic_index_array[neg_pic_index]]);
+		neg_pic_index = neg_pic_index + 1;
+		
+		mpb_pic5.set_part(1,negative_pic_array[pic_index_array[neg_pic_index]]);
+		mpb_event5.set_event_code("face_nr" + string(pic_index_array[neg_pic_index]) + "_" + negative_string_array[pic_index_array[neg_pic_index]]);
+		responses[i][6] = string(pic_index_array[neg_pic_index]);
+		mpb_event5.set_target_button(negative_string_array[pic_index_array[neg_pic_index]]);
+		neg_pic_index = neg_pic_index + 1;
+		
+		mpb_pic6.set_part(1,negative_pic_array[pic_index_array[neg_pic_index]]);
+		mpb_event6.set_event_code("face_nr" + string(pic_index_array[neg_pic_index]) + "_" + negative_string_array[pic_index_array[neg_pic_index]]);
+		responses[i][7] = string(pic_index_array[neg_pic_index]);
+		mpb_event6.set_target_button(negative_string_array[pic_index_array[neg_pic_index]]);
+		neg_pic_index = neg_pic_index + 1;
+		
+		term.print("trial: " + string(i) + ", condition: face\n");
+
+	elseif stimseq_array[i] == 2 then # Current condition: scrambled
+	
+		condition = "scrambled";
+	
+		if jitter_scr_index > 4 then # if index exceeds length of jitter array, shuffle and start again with first array entry
+			jitter_scr_array.shuffle();
+			jitter_scr_index = 1;			
+		end;
+		
+		responses[i][1] = condition;
+	
+		# Set parameters for next trial
+		mpb_event1.set_deltat(int(jitter_scr_array[jitter_scr_index]*tr)); # add jitter to iti	
+		jitter_scr_index = jitter_scr_index + 1;
+		
+		mpb_pic1.set_part(1,scrambled_pic_array[scr_index_array[scr_pic_index]]); # set picture for presentation
+		mpb_event1.set_event_code("onset_scrambled_color_" + col[scr_col_array[scr_index_array[scr_pic_index]]]); # writes condition and color to logfile
+		responses[i][2] = col[scr_col_array[scr_index_array[scr_pic_index]]];
+		mpb_event1.set_target_button(scr_col_array[scr_index_array[scr_pic_index]]); # set target button (1=green, 2=blue)
+		scr_pic_index = scr_pic_index + 1;
+		
+		mpb_pic2.set_part(1,scrambled_pic_array[scr_index_array[scr_pic_index]]); # set picture for presentation
+		mpb_event2.set_event_code("scrambled_color_" + col[scr_col_array[scr_index_array[scr_pic_index]]]); # writes condition and color to logfile
+		responses[i][3] = col[scr_col_array[scr_index_array[scr_pic_index]]];
+		mpb_event2.set_target_button(scr_col_array[scr_index_array[scr_pic_index]]); # set target button (1=green, 2=blue)
+		scr_pic_index = scr_pic_index + 1;
+		
+		mpb_pic3.set_part(1,scrambled_pic_array[scr_index_array[scr_pic_index]]); # set picture for presentation
+		mpb_event3.set_event_code("scrambled_color_" + col[scr_col_array[scr_index_array[scr_pic_index]]]); # writes condition and color to logfile
+		responses[i][4] = col[scr_col_array[scr_index_array[scr_pic_index]]];
+		mpb_event3.set_target_button(scr_col_array[scr_index_array[scr_pic_index]]); # set target button (1=green, 2=blue)
+		scr_pic_index = scr_pic_index + 1;
+		
+		mpb_pic4.set_part(1,scrambled_pic_array[scr_index_array[scr_pic_index]]); # set picture for presentation
+		mpb_event4.set_event_code("scrambled_color_" + col[scr_col_array[scr_index_array[scr_pic_index]]]); # writes condition and color to logfile
+		responses[i][5] = col[scr_col_array[scr_index_array[scr_pic_index]]];
+		mpb_event4.set_target_button(scr_col_array[scr_index_array[scr_pic_index]]); # set target button (1=green, 2=blue)
+		scr_pic_index = scr_pic_index + 1;
+		
+		mpb_pic5.set_part(1,scrambled_pic_array[scr_index_array[scr_pic_index]]); # set picture for presentation
+		mpb_event5.set_event_code("scrambled_color_" + col[scr_col_array[scr_index_array[scr_pic_index]]]); # writes condition and color to logfile
+		responses[i][6] = col[scr_col_array[scr_index_array[scr_pic_index]]];
+		mpb_event5.set_target_button(scr_col_array[scr_index_array[scr_pic_index]]); # set target button (1=green, 2=blue)
+		scr_pic_index = scr_pic_index + 1;
+		
+		mpb_pic6.set_part(1,scrambled_pic_array[scr_index_array[scr_pic_index]]); # set picture for presentation
+		mpb_event6.set_event_code("scrambled_color_" + col[scr_col_array[scr_index_array[scr_pic_index]]]); # writes condition and color to logfile
+		responses[i][7] = col[scr_col_array[scr_index_array[scr_pic_index]]];
+		mpb_event6.set_target_button(scr_col_array[scr_index_array[scr_pic_index]]); # set target button (1=green, 2=blue)
+		scr_pic_index = scr_pic_index + 1;
+		
+		term.print("trial: " + string(i) + ", condition: scrambled\n");
+		
+	end;
+
+	mpb_trial.present();
+	
+	term.print("hits: "+string(response_manager.hits())+", misses: "+string(response_manager.misses())+"\n");	
+	
+	responses[i][8] = string(response_manager.hits());
+	responses[i][9] = string(response_manager.incorrects());
+	responses[i][10] = string(response_manager.misses());
+	
+	# log trial information to events.tsv file
+	int k = 1;
+	loop int j = 5 until j < 0 begin
+		this_trial = stimulus_manager.get_stimulus_data(stimulus_manager.stimulus_count()-j); 
+
+		if this_trial.type() == stimulus_hit then
+			response_type = "hit";
+		elseif this_trial.type() == stimulus_incorrect then
+			response_type = "incorrect";
+		elseif this_trial.type() == stimulus_miss then
+			response_type = "miss";
+		elseif this_trial.type() == stimulus_other then
+			response_type = "other";
+		end;
+			
+		outfile_events.print("\n"+string(this_trial.time_double()/1000-t0_time)+"\t3000\t"+condition+"\t"+string(this_trial.button())+"\t"+response_type+"\t"+string(this_trial.reaction_time()));
+		responses[i][10+k] = string(this_trial.reaction_time());
+		j = j - 1;
+		k = k + 1;
+	end;	
+	
+	fixcross_trial.present();
+	this_trial = stimulus_manager.get_stimulus_data(stimulus_manager.stimulus_count()); 	
+	outfile_events.print("\n"+string(this_trial.time_double()/1000-t0_time)+"\t0\t"+this_trial.event_code());
+	
+	i = i + 1;
+
+end;
+
+end_trial.set_mri_pulse(370);
+end_trial.present();
+
+########################################################
+#              Write Response txt file                 #
+########################################################
+loop int i = 1 until i > max_trials begin
+	outfile_response.print(responses[i][1]);
+	loop int j = 2 until j > 16 begin
+		outfile_response.print("\t"+(responses[i][j]));
+		j = j + 1;
+	end;
+	i = i + 1;
+	outfile_response.print("\n");
+end;
